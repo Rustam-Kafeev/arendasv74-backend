@@ -1,61 +1,43 @@
+# Зависимости
+/vendor
+node_modules/
+package-lock.json
+# composer.lock не должен игнорироваться
+
+# Логи
 *.log
-.DS_Store
+
+# Окружение Laravel
 .env
 .env.backup
 .env.production
-.phpactor.json
-.phpunit.result.cache
-/.cursor/
-/.idea
-/.nova
-/.phpunit.cache
-/.vscode
-/.zed
-/auth.json
-/node_modules
-/public/build
-/public/hot
-/public/storage
-/storage/*.key
-/storage/pail
-/vendor
-_ide_helper.php
-Homestead.json
-Homestead.yaml
-Thumbs.db
-
-# Composer
-/vendor/
-composer.lock
-
-# Laravel
-/storage/*.key
-/storage/app/public/*
-/public/storage
-/public/hot
-.env
-.env.backup
 .env.example
 .phpunit.result.cache
+/storage/*.key
+/storage/app/public/*
+/storage/pail
+/public/hot
+/public/storage
+/public/build
 Homestead.json
 Homestead.yaml
-npm-debug.log
-yarn-error.log
 
-# IDE
+# IDE и редакторы
 /.idea
 /.vscode
+/.cursor/
+/.nova
+/.zed
+/.phpunit.cache
+.phpactor.json
+_ide_helper.php
 *.sublime-project
 *.sublime-workspace
+/auth.json
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Docker (если не нужен)
-Dockerfile
+# Docker
 docker-compose.yml
-
-# Другое
-node_modules/
-package-lock.json
