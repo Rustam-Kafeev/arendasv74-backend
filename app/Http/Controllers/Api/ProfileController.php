@@ -6,11 +6,22 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\Password;
+use Cloudinary\Cloudinary;
 
 class ProfileController extends Controller
 {
+    /**
+     * Получить данные текущего пользователя.
+     */
+    public function show()
+    {
+        return response()->json(Auth::user()->load('cars'));
+    }
+
+    /**
+     * Обновить профиль (имя, телефон, email, аватар).
+     */
     public function update(Request $request)
     {
         $user = Auth::user();
@@ -22,13 +33,37 @@ class ProfileController extends Controller
             'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
+        // Загрузка аватара в Cloudinary
         if ($request->hasFile('avatar')) {
-            // Удаляем старый аватар, если он не является внешним URL
-            if ($user->avatar && !str_starts_with($user->avatar, 'http')) {
-                Storage::disk('public')->delete(str_replace('/storage/', '', $user->avatar));
+            try {
+                $cloudinary = new Cloudinary(env('CLOUDINARY_URL'));
+                $uploadResult = $cloudinary->uploadApi()->upload(
+                    $request->file('avatar')->getRealPath(),
+                    ['folder' => 'avatars']
+                );
+
+                // Извлекаем secure_url независимо от типа возвращаемого объекта
+                $secureUrl = null;
+                if ($uploadResult instanceof \ArrayObject) {
+                    $data = $uploadResult->getArrayCopy();
+                    $secureUrl = $data['secure_url'] ?? null;
+                } elseif (is_array($uploadResult)) {
+                    $secureUrl = $uploadResult['secure_url'] ?? null;
+                } elseif (is_object($uploadResult)) {
+                    $data = json_decode(json_encode($uploadResult), true);
+                    $secureUrl = $data['secure_url'] ?? null;
+                }
+
+                if (!$secureUrl) {
+                    \Log::error('Cloudinary upload did not return secure_url', ['response' => $uploadResult]);
+                    return response()->json(['message' => 'Ошибка загрузки аватара'], 500);
+                }
+
+                $validated['avatar'] = $secureUrl;
+            } catch (\Exception $e) {
+                \Log::error('Avatar upload failed: ' . $e->getMessage());
+                return response()->json(['message' => 'Ошибка загрузки аватара'], 500);
             }
-            $path = $request->file('avatar')->store('avatars', 'public');
-            $validated['avatar'] = Storage::url($path);
         }
 
         $user->update($validated);
@@ -36,6 +71,9 @@ class ProfileController extends Controller
         return response()->json($user);
     }
 
+    /**
+     * Сменить пароль.
+     */
     public function changePassword(Request $request)
     {
         $request->validate([
