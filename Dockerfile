@@ -9,8 +9,9 @@ ENV REAL_IP_HEADER 1
 ENV APP_ENV production
 ENV APP_DEBUG false
 ENV LOG_CHANNEL stderr
-
-# Разрешить Composer от root
 ENV COMPOSER_ALLOW_SUPERUSER 1
+
+# Устанавливаем зависимости Composer во время сборки
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 
 CMD ["/start.sh"]
