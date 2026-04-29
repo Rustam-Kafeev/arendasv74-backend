@@ -1,22 +1,32 @@
-FROM trafex/php-nginx:php8.3
+FROM php:8.3-fpm-alpine
 
-# Копируем приложение
-COPY . /var/www/html
+# Install nginx and supervisor
+RUN apk update && apk add --no-cache nginx supervisor
+
+# Configure nginx
+COPY docker/nginx.conf /etc/nginx/http.d/default.conf
+
+# Configure supervisor to run both php-fpm and nginx
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Install composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Set working directory
 WORKDIR /var/www/html
 
-# Устанавливаем Composer
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# Copy application code
+COPY . /var/www/html
 
-# Устанавливаем зависимости Laravel
+# Install php extensions
+RUN docker-php-ext-install pdo pdo_pgsql
+
+# Install composer dependencies
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# Права на storage и bootstrap/cache
+# Set permissions
 RUN chown -R www-data:www-data storage bootstrap/cache
 
-# Скрипт, который выполнится при старте контейнера (запустит миграции и т.д.)
-COPY scripts/00-laravel-deploy.sh /docker-entrypoint-init.d/00-laravel-deploy.sh
-RUN chmod +x /docker-entrypoint-init.d/00-laravel-deploy.sh
-
-# Подставляем CORS и APP_KEY (настройку CORS мы уже положили в config/cors.php)
-# Экспортируем порт
 EXPOSE 80
+
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
