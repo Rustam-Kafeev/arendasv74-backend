@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use App\Models\CarView;
 use Carbon\Carbon;
+use Cloudinary\Cloudinary;
 
 class CarController extends Controller
 {
@@ -60,9 +61,30 @@ class CarController extends Controller
 
         $photos = [];
         if ($request->hasFile('photos')) {
+            $cloudinary = new Cloudinary(env('CLOUDINARY_URL'));
             foreach ($request->file('photos') as $photo) {
-                $path = $photo->store('cars', 'public');
-                $photos[] = Storage::url($path);
+                try {
+                    $uploadResult = $cloudinary->uploadApi()->upload(
+                        $photo->getRealPath(),
+                        ['folder' => 'cars']
+                    );
+                    // Извлекаем secure_url универсальным способом
+                    $secureUrl = null;
+                    if ($uploadResult instanceof \ArrayObject) {
+                        $data = $uploadResult->getArrayCopy();
+                        $secureUrl = $data['secure_url'] ?? null;
+                    } elseif (is_array($uploadResult)) {
+                        $secureUrl = $uploadResult['secure_url'] ?? null;
+                    } elseif (is_object($uploadResult)) {
+                        $data = json_decode(json_encode($uploadResult), true);
+                        $secureUrl = $data['secure_url'] ?? null;
+                    }
+                    if ($secureUrl) {
+                        $photos[] = $secureUrl;
+                    }
+                } catch (\Exception $e) {
+                    \Log::error('Cloudinary upload failed: ' . $e->getMessage());
+                }
             }
         }
 
@@ -141,19 +163,41 @@ class CarController extends Controller
             $photos = is_array($existing) ? $existing : [];
         }
 
+        // Загрузка новых фото в Cloudinary
         if ($request->hasFile('photos')) {
+            $cloudinary = new Cloudinary(env('CLOUDINARY_URL'));
             foreach ($request->file('photos') as $photo) {
-                $path = $photo->store('cars', 'public');
-                $photos[] = Storage::url($path);
+                try {
+                    $uploadResult = $cloudinary->uploadApi()->upload(
+                        $photo->getRealPath(),
+                        ['folder' => 'cars']
+                    );
+                    $secureUrl = null;
+                    if ($uploadResult instanceof \ArrayObject) {
+                        $data = $uploadResult->getArrayCopy();
+                        $secureUrl = $data['secure_url'] ?? null;
+                    } elseif (is_array($uploadResult)) {
+                        $secureUrl = $uploadResult['secure_url'] ?? null;
+                    } elseif (is_object($uploadResult)) {
+                        $data = json_decode(json_encode($uploadResult), true);
+                        $secureUrl = $data['secure_url'] ?? null;
+                    }
+                    if ($secureUrl) {
+                        $photos[] = $secureUrl;
+                    }
+                } catch (\Exception $e) {
+                    \Log::error('Cloudinary upload failed: ' . $e->getMessage());
+                }
             }
         }
 
-        $oldPhotos = $car->photos ?? [];
-        $removedPhotos = array_diff($oldPhotos, $photos);
-        foreach ($removedPhotos as $removed) {
-            $path = str_replace('/storage/', '', $removed);
-            Storage::disk('public')->delete($path);
-        }
+        // Удаление старых фото из облака (опционально)
+        // Если нужно удалить старые фото из Cloudinary, раскомментируйте и реализуйте
+        // $oldPhotos = $car->photos ?? [];
+        // $removedPhotos = array_diff($oldPhotos, $photos);
+        // foreach ($removedPhotos as $removed) {
+        //     // Извлеките public_id из URL и удалите через API Cloudinary
+        // }
 
         $validated['photos'] = $photos;
         $car->update($validated);
@@ -170,12 +214,12 @@ class CarController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        if ($car->photos) {
-            foreach ($car->photos as $photoUrl) {
-                $path = str_replace('/storage/', '', $photoUrl);
-                Storage::disk('public')->delete($path);
-            }
-        }
+        // Удаление фото из Cloudinary (опционально, по желанию)
+        // if ($car->photos) {
+        //     foreach ($car->photos as $photoUrl) {
+        //         // Извлеките public_id из URL и удалите через API Cloudinary
+        //     }
+        // }
 
         $car->delete();
 
