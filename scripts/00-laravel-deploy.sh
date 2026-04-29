@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-echo "Caching config and routes"
+echo "Caching config, routes, and views"
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache

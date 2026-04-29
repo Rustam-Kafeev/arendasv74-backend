@@ -1,17 +1,22 @@
-FROM richarvey/nginx-php-fpm:3.3.0
-COPY . .
+FROM trafex/php-nginx:php8.3
 
-ENV SKIP_COMPOSER 1
-ENV WEBROOT /var/www/html/public
-ENV PHP_ERRORS_STDERR 1
-ENV RUN_SCRIPTS 1
-ENV REAL_IP_HEADER 1
-ENV APP_ENV production
-ENV APP_DEBUG false
-ENV LOG_CHANNEL stderr
-ENV COMPOSER_ALLOW_SUPERUSER 1
+# Копируем приложение
+COPY . /var/www/html
+WORKDIR /var/www/html
 
-# Устанавливаем зависимости Composer во время сборки
+# Устанавливаем Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# Устанавливаем зависимости Laravel
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-CMD ["/start.sh"]
+# Права на storage и bootstrap/cache
+RUN chown -R www-data:www-data storage bootstrap/cache
+
+# Скрипт, который выполнится при старте контейнера (запустит миграции и т.д.)
+COPY scripts/00-laravel-deploy.sh /docker-entrypoint-init.d/00-laravel-deploy.sh
+RUN chmod +x /docker-entrypoint-init.d/00-laravel-deploy.sh
+
+# Подставляем CORS и APP_KEY (настройку CORS мы уже положили в config/cors.php)
+# Экспортируем порт
+EXPOSE 80
