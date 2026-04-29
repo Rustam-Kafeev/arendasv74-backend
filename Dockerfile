@@ -1,20 +1,17 @@
-FROM serversideup/php:8.3-fpm-nginx
+FROM richarvey/nginx-php-fpm:3.3.0
+COPY . .
 
-# Копируем код приложения
-COPY . /var/www/html
-WORKDIR /var/www/html
+ENV SKIP_COMPOSER 1
+ENV WEBROOT /var/www/html/public
+ENV PHP_ERRORS_STDERR 1
+ENV RUN_SCRIPTS 1
+ENV REAL_IP_HEADER 1
+ENV APP_ENV production
+ENV APP_DEBUG false
+ENV LOG_CHANNEL stderr
+ENV COMPOSER_ALLOW_SUPERUSER 1
 
-# Устанавливаем права и зависимости
+# Устанавливаем зависимости Composer во время сборки
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# Права на storage и bootstrap/cache
-RUN chown -R www-data:www-data storage bootstrap/cache
-
-# Переменные окружения
-ENV PHP_OPCACHE_ENABLE=1
-ENV PHP_OPCACHE_REVALIDATE_FREQ=0
-
-# Открываем порт
-EXPOSE 80
-
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
+CMD ["/start.sh"]
