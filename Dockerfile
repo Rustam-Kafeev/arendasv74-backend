@@ -1,29 +1,31 @@
-FROM php:8.3-cli
+FROM php:8.3-fpm-alpine
 
-# Устанавливаем системные зависимости
-RUN apt-get update && apt-get install -y \
+# Установка системных зависимостей
+RUN apk update && apk add --no-cache \
     libpq-dev \
-    unzip \
     nginx \
-    supervisor
+    supervisor \
+    curl \
+    && docker-php-ext-install pdo pdo_pgsql
 
-# Устанавливаем PHP расширения
-RUN docker-php-ext-install pdo pdo_pgsql
-
-# Устанавливаем Composer
+# Установка Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Копируем код приложения
-COPY . /app
-WORKDIR /app
+# Копирование конфигурации Nginx и Supervisor
+COPY docker/nginx.conf /etc/nginx/http.d/default.conf
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Устанавливаем зависимости Laravel
-RUN composer install --no-dev --optimize-autoloader
+WORKDIR /var/www/html
 
-# Права на storage и bootstrap/cache
+# Копирование кода приложения
+COPY . /var/www/html
+
+# Установка PHP-зависимостей
+RUN composer install --no-dev --optimize-autoloader --no-interaction
+
+# Настройка прав
 RUN chown -R www-data:www-data storage bootstrap/cache
 
-# Порт, который будет слушать Railway (переменная окружения)
-EXPOSE 8000
+EXPOSE 80
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
