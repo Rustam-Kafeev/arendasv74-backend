@@ -14,7 +14,8 @@ class DashboardController extends Controller
 {
     public function stats()
     {
-        $user = Auth::user();
+        try{
+            $user = Auth::user();
 
         $carsCount = Car::where('user_id', $user->id)->count();
         $activeCars = Car::where('user_id', $user->id)->where('is_available', true)->count();
@@ -72,5 +73,10 @@ class DashboardController extends Controller
             'unread_messages' => $unreadMessages,
             'recent_messages' => $recentMessages,
         ]);
+        }
+        catch (\Exception $e) {
+        \Log::error('Dashboard stats error: '.$e->getMessage());
+        return response()->json(['error' => 'Internal error'], 500);
+    }
     }
 }
