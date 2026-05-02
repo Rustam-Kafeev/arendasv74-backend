@@ -4,10 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Car;
 use App\Models\CarView;
-use App\Models\City; // Убедитесь, что модель City существует и таблица заполнена
+use App\Models\City;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Carbon\Carbon;
 use Cloudinary\Cloudinary;
@@ -15,45 +16,36 @@ use Cloudinary\Cloudinary;
 class CarController extends Controller
 {
     /**
-     * Список автомобилей с фильтрацией.
-     * Теперь фильтр по городу работает через таблицу car_city_prices.
+     * Список автомобилей с фильтрацией по городу через car_city_prices.
      */
     public function index(Request $request)
     {
         $query = Car::whereHas('cities', function ($q) {
             $q->where('car_city_prices.is_available', true);
         })
-            ->with(['user:id,name', 'cities:id,name']); // загружаем города для отображения
+            ->with(['user:id,name', 'cities:id,name']);
 
-        // Фильтр по городу (без учёта регистра)
         if ($request->has('city')) {
             $query->whereHas('cities', function ($q) use ($request) {
                 $q->where('name', 'ilike', '%' . $request->city . '%');
             });
         }
 
-        // Фильтр по марке
         if ($request->has('brand')) {
             $query->where('brand', 'like', '%' . $request->brand . '%');
         }
 
-        // Сортировка
         $sort = $request->get('sort', 'created_at');
         $direction = $request->get('direction', 'desc');
-        $allowedSorts = ['created_at', 'year'];
-        if (in_array($sort, $allowedSorts)) {
+        if (in_array($sort, ['created_at', 'year'])) {
             $query->orderBy($sort, $direction);
         }
 
-        $cars = $query->paginate(12);
-
-        return response()->json($cars);
+        return response()->json($query->paginate(12));
     }
 
     /**
-     * Создание нового объявления.
-     * Автоматически делает автомобиль доступным во всех городах,
-     * если не передан массив 'cities'.
+     * Создание объявления с поддержкой мультигородов.
      */
     public function store(Request $request)
     {
@@ -62,17 +54,32 @@ class CarController extends Controller
             'model' => 'required|string|max:255',
             'year' => 'required|integer|min:1900|max:' . (date('Y') + 1),
             'description' => 'required|string',
-            'city' => 'required|string|max:255',        // базовый город (может быть основным)
-            'price_per_day' => 'required|numeric|min:0',  // базовая цена
+            'city' => 'required|string|max:255',
+            'price_per_day' => 'required|numeric|min:0',
             'buyout_price' => 'nullable|numeric|min:0',
             'photos.*' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
-            // Необязательный массив городов с индивидуальными параметрами
-            'cities' => 'nullable|array',
-            'cities.*.id' => 'required|exists:cities,id',
-            'cities.*.price_per_day' => 'required|numeric|min:0',
-            'cities.*.buyout_price' => 'nullable|numeric|min:0',
-            'cities.*.description' => 'nullable|string',
+            // Принимаем как JSON-строку, а не массив (из-за FormData)
+            'cities' => 'nullable|json',
         ]);
+
+        // Парсим города, если они переданы
+        $citiesData = [];
+        if ($request->filled('cities')) {
+            $citiesData = json_decode($request->input('cities'), true);
+            if (!is_array($citiesData)) {
+                return response()->json(['message' => 'Поле cities должно быть массивом'], 422);
+            }
+            // Дополнительная валидация каждого элемента
+            $validator = Validator::make($citiesData, [
+                '*.id' => 'required|exists:cities,id',
+                '*.price_per_day' => 'required|numeric|min:0',
+                '*.buyout_price' => 'nullable|numeric|min:0',
+                '*.description' => 'nullable|string',
+            ]);
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+        }
 
         // Загрузка фото в Cloudinary
         $photos = [];
@@ -94,53 +101,52 @@ class CarController extends Controller
             }
         }
 
-        // Создаём автомобиль с базовыми полями
+        // Создаём автомобиль
         $car = Auth::user()->cars()->create([
             'brand' => $validated['brand'],
             'model' => $validated['model'],
             'year' => $validated['year'],
             'description' => $validated['description'],
-            'city' => $validated['city'],               // остаётся для быстрой навигации
+            'city' => $validated['city'],
             'price_per_day' => $validated['price_per_day'],
             'buyout_price' => $validated['buyout_price'] ?? null,
             'photos' => $photos,
             'is_available' => true,
         ]);
 
-        // Определяем, какие города привязывать
-        if (!empty($validated['cities'])) {
-            // Привязываем только указанные города с их параметрами
-            $citiesToAttach = [];
-            foreach ($validated['cities'] as $cityData) {
-                $citiesToAttach[$cityData['id']] = [
+        // Привязка городов
+        if (!empty($citiesData)) {
+            // Только указанные города
+            $attach = [];
+            foreach ($citiesData as $cityData) {
+                $attach[$cityData['id']] = [
                     'price_per_day' => $cityData['price_per_day'],
                     'buyout_price' => $cityData['buyout_price'] ?? null,
                     'description' => $cityData['description'] ?? $validated['description'],
                     'is_available' => true,
                 ];
             }
+            $car->cities()->sync($attach);
         } else {
-            // Автоматически делаем доступным во ВСЕХ городах с базовыми значениями
+            // Если города не переданы – привязываем все города РФ с базовыми параметрами
             $allCities = City::all();
-            $citiesToAttach = [];
+            $attach = [];
             foreach ($allCities as $city) {
-                $citiesToAttach[$city->id] = [
+                $attach[$city->id] = [
                     'price_per_day' => $validated['price_per_day'],
                     'buyout_price' => $validated['buyout_price'] ?? null,
                     'description' => $validated['description'],
                     'is_available' => true,
                 ];
             }
+            $car->cities()->sync($attach);
         }
 
-        // Сохраняем связи
-        $car->cities()->sync($citiesToAttach);
-
-        return response()->json($car->load('cities'), 201);
+        return response()->json($car->fresh('cities'), 201);
     }
 
     /**
-     * Просмотр одного автомобиля.
+     * Просмотр автомобиля с учётом просмотров.
      */
     public function show(Car $car)
     {
@@ -154,7 +160,7 @@ class CarController extends Controller
     }
 
     /**
-     * Обновление объявления (только владелец).
+     * Обновление объявления.
      */
     public function update(Request $request, Car $car)
     {
@@ -173,12 +179,7 @@ class CarController extends Controller
             'existing_photos' => 'nullable|json',
             'photos.*' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
             'is_available' => 'sometimes|boolean',
-            // При желании можно добавить обновление параметров для городов
-            'cities' => 'nullable|array',
-            'cities.*.id' => 'required|exists:cities,id',
-            'cities.*.price_per_day' => 'required|numeric|min:0',
-            'cities.*.buyout_price' => 'nullable|numeric|min:0',
-            'cities.*.description' => 'nullable|string',
+            'cities' => 'nullable|json',
         ]);
 
         $photos = $this->handlePhotosUpdate($request, $car, $validated);
@@ -186,25 +187,38 @@ class CarController extends Controller
         // Обновляем основные поля
         $car->update($validated);
 
-        // Если переданы города – обновляем связи
-        if (isset($validated['cities'])) {
-            $citiesToAttach = [];
-            foreach ($validated['cities'] as $cityData) {
-                $citiesToAttach[$cityData['id']] = [
-                    'price_per_day' => $cityData['price_per_day'],
-                    'buyout_price' => $cityData['buyout_price'] ?? null,
-                    'description' => $cityData['description'] ?? $car->description,
-                    'is_available' => true,
-                ];
+        // Обработка городов
+        if ($request->filled('cities')) {
+            $citiesData = json_decode($request->input('cities'), true);
+            if (is_array($citiesData)) {
+                $validator = Validator::make($citiesData, [
+                    '*.id' => 'required|exists:cities,id',
+                    '*.price_per_day' => 'required|numeric|min:0',
+                    '*.buyout_price' => 'nullable|numeric|min:0',
+                    '*.description' => 'nullable|string',
+                ]);
+                if ($validator->fails()) {
+                    return response()->json(['errors' => $validator->errors()], 422);
+                }
+
+                $attach = [];
+                foreach ($citiesData as $cityData) {
+                    $attach[$cityData['id']] = [
+                        'price_per_day' => $cityData['price_per_day'],
+                        'buyout_price' => $cityData['buyout_price'] ?? null,
+                        'description' => $cityData['description'] ?? $car->description,
+                        'is_available' => true,
+                    ];
+                }
+                $car->cities()->sync($attach);
             }
-            $car->cities()->sync($citiesToAttach);
         }
 
-        return response()->json($car->load('cities'));
+        return response()->json($car->fresh('cities'));
     }
 
     /**
-     * Удаление объявления (только владелец).
+     * Удаление автомобиля.
      */
     public function destroy(Car $car)
     {
@@ -217,19 +231,17 @@ class CarController extends Controller
     }
 
     /**
-     * Мои объявления (для личного кабинета).
+     * Автомобили текущего пользователя.
      */
     public function myCars()
     {
-        $cars = Auth::user()->cars()->with('cities:id,name')->latest()->get();
-        return response()->json($cars);
+        return response()->json(
+            Auth::user()->cars()->with('cities:id,name')->latest()->get()
+        );
     }
 
-    // --- Вспомогательные методы ---
+    // ─── Вспомогательные методы ─────────────────────────────────────────────
 
-    /**
-     * Извлекает secure_url из ответа Cloudinary.
-     */
     private function extractSecureUrl($uploadResult): ?string
     {
         if ($uploadResult instanceof \ArrayObject) {
@@ -246,9 +258,6 @@ class CarController extends Controller
         return null;
     }
 
-    /**
-     * Обрабатывает обновление фотографий.
-     */
     private function handlePhotosUpdate(Request $request, Car $car, array &$validated): array
     {
         $photos = [];
@@ -279,9 +288,6 @@ class CarController extends Controller
         return $photos;
     }
 
-    /**
-     * Учитывает уникальный просмотр автомобиля за сегодня.
-     */
     private function trackView(Car $car): void
     {
         $sessionKey = 'viewed_cars_' . Carbon::today()->toDateString();
