@@ -6,15 +6,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Illuminate\Support\Facades\Storage;
 
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
-    public function cars()
-{
-    return $this->hasMany(Car::class);
-}
 
     /**
      * The attributes that are mass assignable.
@@ -52,27 +47,35 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
-    // Аксессор для аватара (возвращает полный URL)
-public function getAvatarUrlAttribute(): string
-{
-    if (empty($this->avatar)) {
-        return 'https://ui-avatars.com/api/?name=' . urlencode($this->name) . '&background=random&size=128';
+
+    // Автоматическое добавление поля avatar_url в JSON
+    protected $appends = ['avatar_url'];
+
+    public function cars()
+    {
+        return $this->hasMany(Car::class);
     }
 
-    // Если уже полный URL, возвращаем как есть
-    if (str_starts_with($this->avatar, 'http')) {
-        return $this->avatar;
+    /**
+     * Аксессор для аватара – возвращает полный URL.
+     */
+    public function getAvatarUrlAttribute(): string
+    {
+        if (empty($this->avatar)) {
+            return 'https://ui-avatars.com/api/?name=' . urlencode($this->name) . '&background=random&size=128';
+        }
+
+        // Если уже полный URL (начинается с http), вернуть как есть
+        if (str_starts_with($this->avatar, 'http')) {
+            return $this->avatar;
+        }
+
+        // Если это относительный путь /storage/..., собираем полный URL приложения
+        if (str_starts_with($this->avatar, '/storage/')) {
+            return url($this->avatar);
+        }
+
+        // Иначе считаем, что это public_id Cloudinary, и формируем полный URL
+        return 'https://res.cloudinary.com/' . env('CLOUD_NAME') . '/image/upload/' . $this->avatar;
     }
-
-    // Если путь уже содержит '/storage/', добавляем базовый URL приложения
-    if (str_starts_with($this->avatar, '/storage/')) {
-        return url($this->avatar);
-    }
-
-    // Иначе считаем, что это относительный путь от корня диска (avatars/...)
-    return Storage::url($this->avatar);
-}
-
-// Чтобы поле автоматически добавлялось в JSON, добавьте:
-protected $appends = ['avatar_url'];
 }

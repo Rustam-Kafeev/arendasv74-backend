@@ -3,11 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Car;
+use App\Models\CarView;
+use App\Models\City; // Убедитесь, что модель City существует и таблица заполнена
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
-use App\Models\CarView;
 use Carbon\Carbon;
 use Cloudinary\Cloudinary;
 
@@ -15,14 +16,20 @@ class CarController extends Controller
 {
     /**
      * Список автомобилей с фильтрацией.
+     * Теперь фильтр по городу работает через таблицу car_city_prices.
      */
     public function index(Request $request)
     {
-        $query = Car::where('is_available', true)->with('user:id,name');
+        $query = Car::whereHas('cities', function ($q) {
+            $q->where('car_city_prices.is_available', true);
+        })
+            ->with(['user:id,name', 'cities:id,name']); // загружаем города для отображения
 
-        // Фильтр по городу (без учета регистра)
+        // Фильтр по городу (без учёта регистра)
         if ($request->has('city')) {
-            $query->where('city', 'ilike', '%' . $request->city . '%');
+            $query->whereHas('cities', function ($q) use ($request) {
+                $q->where('name', 'ilike', '%' . $request->city . '%');
+            });
         }
 
         // Фильтр по марке
@@ -33,7 +40,7 @@ class CarController extends Controller
         // Сортировка
         $sort = $request->get('sort', 'created_at');
         $direction = $request->get('direction', 'desc');
-        $allowedSorts = ['price_per_day', 'year', 'created_at'];
+        $allowedSorts = ['created_at', 'year'];
         if (in_array($sort, $allowedSorts)) {
             $query->orderBy($sort, $direction);
         }
@@ -45,6 +52,8 @@ class CarController extends Controller
 
     /**
      * Создание нового объявления.
+     * Автоматически делает автомобиль доступным во всех городах,
+     * если не передан массив 'cities'.
      */
     public function store(Request $request)
     {
@@ -53,12 +62,19 @@ class CarController extends Controller
             'model' => 'required|string|max:255',
             'year' => 'required|integer|min:1900|max:' . (date('Y') + 1),
             'description' => 'required|string',
-            'city' => 'required|string|max:255',
-            'price_per_day' => 'required|numeric|min:0',
+            'city' => 'required|string|max:255',        // базовый город (может быть основным)
+            'price_per_day' => 'required|numeric|min:0',  // базовая цена
             'buyout_price' => 'nullable|numeric|min:0',
-            'photos.*' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120', // до 5MB
+            'photos.*' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
+            // Необязательный массив городов с индивидуальными параметрами
+            'cities' => 'nullable|array',
+            'cities.*.id' => 'required|exists:cities,id',
+            'cities.*.price_per_day' => 'required|numeric|min:0',
+            'cities.*.buyout_price' => 'nullable|numeric|min:0',
+            'cities.*.description' => 'nullable|string',
         ]);
 
+        // Загрузка фото в Cloudinary
         $photos = [];
         if ($request->hasFile('photos')) {
             $cloudinary = new Cloudinary(env('CLOUDINARY_URL'));
@@ -66,19 +82,9 @@ class CarController extends Controller
                 try {
                     $uploadResult = $cloudinary->uploadApi()->upload(
                         $photo->getRealPath(),
-                        ['folder' => 'cars']
+                        ['folder' => 'cars', 'quality' => 'auto', 'fetch_format' => 'auto']
                     );
-                    // Извлекаем secure_url универсальным способом
-                    $secureUrl = null;
-                    if ($uploadResult instanceof \ArrayObject) {
-                        $data = $uploadResult->getArrayCopy();
-                        $secureUrl = $data['secure_url'] ?? null;
-                    } elseif (is_array($uploadResult)) {
-                        $secureUrl = $uploadResult['secure_url'] ?? null;
-                    } elseif (is_object($uploadResult)) {
-                        $data = json_decode(json_encode($uploadResult), true);
-                        $secureUrl = $data['secure_url'] ?? null;
-                    }
+                    $secureUrl = $this->extractSecureUrl($uploadResult);
                     if ($secureUrl) {
                         $photos[] = $secureUrl;
                     }
@@ -88,18 +94,49 @@ class CarController extends Controller
             }
         }
 
+        // Создаём автомобиль с базовыми полями
         $car = Auth::user()->cars()->create([
             'brand' => $validated['brand'],
             'model' => $validated['model'],
             'year' => $validated['year'],
             'description' => $validated['description'],
-            'city' => $validated['city'],
+            'city' => $validated['city'],               // остаётся для быстрой навигации
             'price_per_day' => $validated['price_per_day'],
             'buyout_price' => $validated['buyout_price'] ?? null,
             'photos' => $photos,
+            'is_available' => true,
         ]);
 
-        return response()->json($car, 201);
+        // Определяем, какие города привязывать
+        if (!empty($validated['cities'])) {
+            // Привязываем только указанные города с их параметрами
+            $citiesToAttach = [];
+            foreach ($validated['cities'] as $cityData) {
+                $citiesToAttach[$cityData['id']] = [
+                    'price_per_day' => $cityData['price_per_day'],
+                    'buyout_price' => $cityData['buyout_price'] ?? null,
+                    'description' => $cityData['description'] ?? $validated['description'],
+                    'is_available' => true,
+                ];
+            }
+        } else {
+            // Автоматически делаем доступным во ВСЕХ городах с базовыми значениями
+            $allCities = City::all();
+            $citiesToAttach = [];
+            foreach ($allCities as $city) {
+                $citiesToAttach[$city->id] = [
+                    'price_per_day' => $validated['price_per_day'],
+                    'buyout_price' => $validated['buyout_price'] ?? null,
+                    'description' => $validated['description'],
+                    'is_available' => true,
+                ];
+            }
+        }
+
+        // Сохраняем связи
+        $car->cities()->sync($citiesToAttach);
+
+        return response()->json($car->load('cities'), 201);
     }
 
     /**
@@ -107,27 +144,8 @@ class CarController extends Controller
      */
     public function show(Car $car)
     {
-        \Log::info('Car viewed: ' . $car->id . ' by session ' . session()->getId());
-        $sessionKey = 'viewed_cars_' . Carbon::today()->toDateString();
-        $viewedCars = session()->get($sessionKey, []);
-
-        // Если данный автомобиль ещё не просматривался в этой сессии за сегодня
-        if (!in_array($car->id, $viewedCars)) {
-            // Увеличиваем счётчик
-            $today = Carbon::today();
-            $carView = CarView::firstOrNew([
-                'car_id' => $car->id,
-                'view_date' => $today,
-            ]);
-            $carView->count = $carView->exists ? $carView->count + 1 : 1;
-            $carView->save();
-
-            // Добавляем ID автомобиля в список просмотренных
-            $viewedCars[] = $car->id;
-            session()->put($sessionKey, $viewedCars);
-        }
-
-        $car->load('user:id,name,phone');
+        $this->trackView($car);
+        $car->load(['user:id,name,phone', 'cities:id,name']);
         $car->views_today = CarView::where('car_id', $car->id)
             ->where('view_date', Carbon::today())
             ->value('count') ?? 0;
@@ -155,54 +173,34 @@ class CarController extends Controller
             'existing_photos' => 'nullable|json',
             'photos.*' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
             'is_available' => 'sometimes|boolean',
+            // При желании можно добавить обновление параметров для городов
+            'cities' => 'nullable|array',
+            'cities.*.id' => 'required|exists:cities,id',
+            'cities.*.price_per_day' => 'required|numeric|min:0',
+            'cities.*.buyout_price' => 'nullable|numeric|min:0',
+            'cities.*.description' => 'nullable|string',
         ]);
 
-        $photos = [];
-        if ($request->has('existing_photos')) {
-            $existing = json_decode($request->input('existing_photos'), true);
-            $photos = is_array($existing) ? $existing : [];
-        }
+        $photos = $this->handlePhotosUpdate($request, $car, $validated);
 
-        // Загрузка новых фото в Cloudinary
-        if ($request->hasFile('photos')) {
-            $cloudinary = new Cloudinary(env('CLOUDINARY_URL'));
-            foreach ($request->file('photos') as $photo) {
-                try {
-                    $uploadResult = $cloudinary->uploadApi()->upload(
-                        $photo->getRealPath(),
-                        ['folder' => 'cars']
-                    );
-                    $secureUrl = null;
-                    if ($uploadResult instanceof \ArrayObject) {
-                        $data = $uploadResult->getArrayCopy();
-                        $secureUrl = $data['secure_url'] ?? null;
-                    } elseif (is_array($uploadResult)) {
-                        $secureUrl = $uploadResult['secure_url'] ?? null;
-                    } elseif (is_object($uploadResult)) {
-                        $data = json_decode(json_encode($uploadResult), true);
-                        $secureUrl = $data['secure_url'] ?? null;
-                    }
-                    if ($secureUrl) {
-                        $photos[] = $secureUrl;
-                    }
-                } catch (\Exception $e) {
-                    \Log::error('Cloudinary upload failed: ' . $e->getMessage());
-                }
-            }
-        }
-
-        // Удаление старых фото из облака (опционально)
-        // Если нужно удалить старые фото из Cloudinary, раскомментируйте и реализуйте
-        // $oldPhotos = $car->photos ?? [];
-        // $removedPhotos = array_diff($oldPhotos, $photos);
-        // foreach ($removedPhotos as $removed) {
-        //     // Извлеките public_id из URL и удалите через API Cloudinary
-        // }
-
-        $validated['photos'] = $photos;
+        // Обновляем основные поля
         $car->update($validated);
 
-        return response()->json($car);
+        // Если переданы города – обновляем связи
+        if (isset($validated['cities'])) {
+            $citiesToAttach = [];
+            foreach ($validated['cities'] as $cityData) {
+                $citiesToAttach[$cityData['id']] = [
+                    'price_per_day' => $cityData['price_per_day'],
+                    'buyout_price' => $cityData['buyout_price'] ?? null,
+                    'description' => $cityData['description'] ?? $car->description,
+                    'is_available' => true,
+                ];
+            }
+            $car->cities()->sync($citiesToAttach);
+        }
+
+        return response()->json($car->load('cities'));
     }
 
     /**
@@ -214,21 +212,92 @@ class CarController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Удаление фото из Cloudinary (опционально, по желанию)
-        // if ($car->photos) {
-        //     foreach ($car->photos as $photoUrl) {
-        //         // Извлеките public_id из URL и удалите через API Cloudinary
-        //     }
-        // }
-
         $car->delete();
-
         return response()->json(['message' => 'Объявление удалено']);
     }
 
+    /**
+     * Мои объявления (для личного кабинета).
+     */
     public function myCars()
     {
-        $cars = Auth::user()->cars()->latest()->get();
+        $cars = Auth::user()->cars()->with('cities:id,name')->latest()->get();
         return response()->json($cars);
+    }
+
+    // --- Вспомогательные методы ---
+
+    /**
+     * Извлекает secure_url из ответа Cloudinary.
+     */
+    private function extractSecureUrl($uploadResult): ?string
+    {
+        if ($uploadResult instanceof \ArrayObject) {
+            $data = $uploadResult->getArrayCopy();
+            return $data['secure_url'] ?? null;
+        }
+        if (is_array($uploadResult)) {
+            return $uploadResult['secure_url'] ?? null;
+        }
+        if (is_object($uploadResult)) {
+            $data = json_decode(json_encode($uploadResult), true);
+            return $data['secure_url'] ?? null;
+        }
+        return null;
+    }
+
+    /**
+     * Обрабатывает обновление фотографий.
+     */
+    private function handlePhotosUpdate(Request $request, Car $car, array &$validated): array
+    {
+        $photos = [];
+        if ($request->has('existing_photos')) {
+            $existing = json_decode($request->input('existing_photos'), true);
+            $photos = is_array($existing) ? $existing : [];
+        }
+
+        if ($request->hasFile('photos')) {
+            $cloudinary = new Cloudinary(env('CLOUDINARY_URL'));
+            foreach ($request->file('photos') as $photo) {
+                try {
+                    $uploadResult = $cloudinary->uploadApi()->upload(
+                        $photo->getRealPath(),
+                        ['folder' => 'cars', 'quality' => 'auto', 'fetch_format' => 'auto']
+                    );
+                    $secureUrl = $this->extractSecureUrl($uploadResult);
+                    if ($secureUrl) {
+                        $photos[] = $secureUrl;
+                    }
+                } catch (\Exception $e) {
+                    \Log::error('Cloudinary upload failed: ' . $e->getMessage());
+                }
+            }
+        }
+
+        $validated['photos'] = $photos;
+        return $photos;
+    }
+
+    /**
+     * Учитывает уникальный просмотр автомобиля за сегодня.
+     */
+    private function trackView(Car $car): void
+    {
+        $sessionKey = 'viewed_cars_' . Carbon::today()->toDateString();
+        $viewedCars = session()->get($sessionKey, []);
+
+        if (!in_array($car->id, $viewedCars)) {
+            $today = Carbon::today();
+            $carView = CarView::firstOrNew([
+                'car_id' => $car->id,
+                'view_date' => $today,
+            ]);
+            $carView->count = ($carView->exists ? $carView->count : 0) + 1;
+            $carView->save();
+
+            $viewedCars[] = $car->id;
+            session()->put($sessionKey, $viewedCars);
+        }
     }
 }

@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
-use Illuminate\Support\Facades\Storage;
 
 class AuthController extends Controller
 {
@@ -75,29 +74,4 @@ class AuthController extends Controller
 
         return response()->json(['message' => 'Вы вышли из системы']);
     }
-
-    public function updateProfile(Request $request)
-{
-    $user = Auth::user();
-
-    $validated = $request->validate([
-        'name' => 'sometimes|string|max:255',
-        'phone' => 'sometimes|string|max:20',
-        'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // до 2 МБ
-    ]);
-
-    // Обработка аватара
-    if ($request->hasFile('avatar')) {
-        // Удаляем старый аватар, если он был
-        if ($user->avatar) {
-            Storage::disk('public')->delete(str_replace('/storage/', '', $user->avatar));
-        }
-        $path = $request->file('avatar')->store('avatars', 'public');
-        $validated['avatar'] = Storage::url($path);
-    }
-
-    $user->update($validated);
-
-    return response()->json($user);
-}
 }
