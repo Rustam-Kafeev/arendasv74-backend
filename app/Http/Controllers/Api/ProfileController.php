@@ -30,7 +30,7 @@ class ProfileController extends Controller
             'name' => 'sometimes|string|max:255',
             'phone' => 'sometimes|string|max:20',
             'email' => 'sometimes|email|max:255|unique:users,email,'.$user->id,
-            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
         ]);
 
         // Загрузка аватара в Cloudinary
@@ -42,7 +42,6 @@ class ProfileController extends Controller
                     ['folder' => 'avatars']
                 );
 
-                // Извлекаем secure_url независимо от типа возвращаемого объекта
                 $secureUrl = null;
                 if ($uploadResult instanceof \ArrayObject) {
                     $data = $uploadResult->getArrayCopy();
