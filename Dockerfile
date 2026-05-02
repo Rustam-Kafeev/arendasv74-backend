@@ -7,6 +7,9 @@ RUN apk update && apk add --no-cache \
     libpq-dev \
     && docker-php-ext-install pdo pdo_pgsql
 
+# Создаём директорию для логов supervisor
+RUN mkdir -p /var/log/supervisor
+
 # Копирование конфигурации Nginx и Supervisor
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
