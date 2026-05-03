@@ -16,26 +16,22 @@ class DashboardController extends Controller
         try {
             $user = Auth::user();
 
-            // Всего машин пользователя
             $carsCount = Car::where('user_id', $user->id)->count();
 
-            // Активные авто — те, у которых хотя бы один город активен в pivot
+            // Активные авто – те, у которых хотя бы один город активен в pivot
             $activeCars = Car::where('user_id', $user->id)
-                ->whereHas('cities', function ($q) {
-                    $q->where('is_available', true);
-                })
+                ->whereHas('cities', fn($q) => $q->where('is_available', true))
                 ->count();
 
             $today = Carbon::today();
-            $todayViews = CarView::whereHas('car', function ($q) use ($user) {
-                $q->where('user_id', $user->id);
-            })->where('view_date', $today)->sum('count');
+            $todayViews = CarView::whereHas('car', fn($q) => $q->where('user_id', $user->id))
+                ->where('view_date', $today)->sum('count');
 
-            $totalViews = CarView::whereHas('car', function ($q) use ($user) {
-                $q->where('user_id', $user->id);
-            })->sum('count');
+            $unreadMessages = Message::where('is_read', false)
+                ->whereHas('conversation', fn($q) => $q->where('owner_id', $user->id)->orWhere('renter_id', $user->id))
+                ->where('user_id', '!=', $user->id)->count();
 
-            // Просмотры за 7 дней
+            // График просмотров (последние 7 дней)
             $viewsChart = [];
             for ($i = 6; $i >= 0; $i--) {
                 $date = Carbon::today()->subDays($i)->toDateString();
@@ -44,43 +40,33 @@ class DashboardController extends Controller
                 $viewsChart[] = ['date' => $date, 'count' => $count];
             }
 
-            $unreadMessages = Message::where('is_read', false)
-                ->whereHas('conversation', function ($q) use ($user) {
-                    $q->where('owner_id', $user->id)->orWhere('renter_id', $user->id);
-                })
-                ->where('user_id', '!=', $user->id)
-                ->count();
-
-            $recentMessages = Message::whereHas('conversation', function ($q) use ($user) {
-                $q->where('owner_id', $user->id)->orWhere('renter_id', $user->id);
-            })
+            // Последние сообщения
+            $recentMessages = Message::whereHas('conversation', fn($q) => $q->where('owner_id', $user->id)->orWhere('renter_id', $user->id))
                 ->where('user_id', '!=', $user->id)
                 ->with(['user:id,name', 'conversation.car:id,brand,model'])
                 ->latest()
                 ->take(5)
                 ->get()
-                ->map(function ($msg) {
-                    return [
-                        'id' => $msg->id,
-                        'body' => $msg->body,
-                        'created_at' => $msg->created_at->toDateTimeString(),
-                        'user_name' => $msg->user->name,
-                        'car_brand' => $msg->conversation->car->brand ?? '',
-                        'car_model' => $msg->conversation->car->model ?? '',
-                    ];
-                });
+                ->map(fn($msg) => [
+                    'id' => $msg->id,
+                    'body' => $msg->body,
+                    'created_at' => $msg->created_at->toDateTimeString(),
+                    'user_name' => $msg->user->name,
+                    'car_brand' => $msg->conversation->car->brand ?? '',
+                    'car_model' => $msg->conversation->car->model ?? '',
+                ]);
 
             return response()->json([
                 'cars_count' => $carsCount,
                 'active_cars' => $activeCars,
                 'today_views' => $todayViews,
-                'total_views' => $totalViews,
-                'views_chart' => $viewsChart,
                 'unread_messages' => $unreadMessages,
+                'total_views' => $todayViews,
+                'views_chart' => $viewsChart,
                 'recent_messages' => $recentMessages,
             ]);
         } catch (\Exception $e) {
-            \Log::error('Dashboard stats error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            \Log::error('Dashboard stats error: ' . $e->getMessage());
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
