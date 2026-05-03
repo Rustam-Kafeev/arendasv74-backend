@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
@@ -9,6 +8,6 @@ class CityController extends Controller
 {
     public function index()
     {
-        return City::orderBy('name')->get(['id', 'name']);
+        return response()->json(City::orderBy('name')->get());
     }
 }

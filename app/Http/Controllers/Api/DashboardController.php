@@ -8,7 +8,6 @@ use App\Models\CarView;
 use App\Models\Message;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -17,8 +16,15 @@ class DashboardController extends Controller
         try {
             $user = Auth::user();
 
+            // Всего машин пользователя
             $carsCount = Car::where('user_id', $user->id)->count();
-            $activeCars = Car::where('user_id', $user->id)->where('is_available', true)->count();
+
+            // Активные авто — те, у которых хотя бы один город активен в pivot
+            $activeCars = Car::where('user_id', $user->id)
+                ->whereHas('cities', function ($q) {
+                    $q->where('is_available', true);
+                })
+                ->count();
 
             $today = Carbon::today();
             $todayViews = CarView::whereHas('car', function ($q) use ($user) {
@@ -75,11 +81,7 @@ class DashboardController extends Controller
             ]);
         } catch (\Exception $e) {
             \Log::error('Dashboard stats error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
-            return response()->json([
-                'error' => 'Internal Server Error',
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ], 500);
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 }
