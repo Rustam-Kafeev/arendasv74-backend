@@ -16,9 +16,12 @@ class ChatController extends Controller
     {
         $conversations = Conversation::where('renter_id', Auth::id())
             ->orWhere('owner_id', Auth::id())
-            ->with(['car', 'messages' => function ($q) {
-                $q->latest()->limit(1);
-            }])
+            ->with([
+                'car',
+                'messages' => function ($q) {
+                    $q->latest()->limit(1);
+                }
+            ])
             ->get();
 
         return response()->json($conversations);
@@ -44,21 +47,18 @@ class ChatController extends Controller
     public function getOrCreateConversation(Car $car)
     {
         $user = Auth::user();
-
         $conversation = Conversation::where('car_id', $car->id)
-            ->where(function ($q) use ($user) {
-                $q->where('renter_id', $user->id)->orWhere('owner_id', $user->id);
-            })
+            ->where('owner_id', $car->user_id)
+            ->where('renter_id', $user->id)
             ->first();
 
         if (!$conversation) {
             $conversation = Conversation::create([
                 'car_id' => $car->id,
-                'renter_id' => $user->id,
                 'owner_id' => $car->user_id,
+                'renter_id' => $user->id,
             ]);
         }
-
         return response()->json($conversation);
     }
 
