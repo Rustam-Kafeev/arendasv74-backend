@@ -7,5 +7,9 @@ php artisan view:cache
 echo "Running migrations"
 php artisan migrate --force
 
+# Добавьте эту строку:
+echo "Seeding cities"
+php artisan db:seed --class=CitySeeder --force
+
 echo "Linking storage"
 php artisan storage:link --force
