@@ -19,5 +19,5 @@ COPY . /var/www/html
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 RUN chown -R www-data:www-data storage bootstrap/cache
 
-# Прямая команда: миграции, сидер, storage:link, затем запуск supervisor
-CMD php artisan migrate --force && php artisan db:seed --class=CitySeeder --force && php artisan storage:link --force && supervisord -c /etc/supervisor/conf.d/supervisord.conf
+# Главная команда: миграции, сидер, storage:link, затем запуск supervisor
+CMD (php artisan migrate --force && php artisan db:seed --class=CitySeeder --force && php artisan storage:link --force) && supervisord -c /etc/supervisor/conf.d/supervisord.conf
