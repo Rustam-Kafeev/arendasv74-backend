@@ -23,7 +23,7 @@ class CarController extends Controller
         // Фильтр по городу через связующую таблицу
         if ($request->has('city') && $request->city) {
             $query->whereHas('cities', function ($q) use ($request) {
-                $q->where('name', 'ilike', '%'.$request->city.'%');
+                $q->where('name', 'ilike', '%' . $request->city . '%');
             });
         }
 
@@ -32,7 +32,7 @@ class CarController extends Controller
 
         // Фильтр по марке
         if ($request->has('brand') && $request->brand) {
-            $query->where('brand', 'ilike', '%'.$request->brand.'%');
+            $query->where('brand', 'ilike', '%' . $request->brand . '%');
         }
 
         // Сортировка
@@ -56,7 +56,7 @@ class CarController extends Controller
         $validated = $request->validate([
             'brand' => 'required|string|max:255',
             'model' => 'required|string|max:255',
-            'year' => 'required|integer|min:1900|max:'.(date('Y')+1),
+            'year' => 'required|integer|min:1900|max:' . (date('Y') + 1),
             'description' => 'nullable|string',
             'is_available' => 'boolean',
             'cities' => 'required|json', // JSON-строка с массивом городов
@@ -78,6 +78,7 @@ class CarController extends Controller
             $car->cities()->attach($cityData['id'], [
                 'price_per_day' => $cityData['price_per_day'],
                 'buyout_price' => $cityData['buyout_price'] ?? null,
+                'advance' => $cityData['advance'] ?? null,
                 'description' => $cityData['description'] ?? '',
                 'is_available' => true,
             ]);
@@ -122,7 +123,7 @@ class CarController extends Controller
         $car->load(['user:id,name,phone', 'cities']);
 
         // Увеличиваем счётчик просмотров
-        $sessionKey = 'viewed_cars_'.Carbon::today()->toDateString();
+        $sessionKey = 'viewed_cars_' . Carbon::today()->toDateString();
         $viewedCars = session()->get($sessionKey, []);
         if (!in_array($car->id, $viewedCars)) {
             $carView = CarView::firstOrNew([
@@ -153,7 +154,7 @@ class CarController extends Controller
         $validated = $request->validate([
             'brand' => 'sometimes|string|max:255',
             'model' => 'sometimes|string|max:255',
-            'year' => 'sometimes|integer|min:1900|max:'.(date('Y')+1),
+            'year' => 'sometimes|integer|min:1900|max:' . (date('Y') + 1),
             'description' => 'nullable|string',
             'is_available' => 'sometimes|boolean',
             'cities' => 'nullable|json',
@@ -169,8 +170,9 @@ class CarController extends Controller
                 $car->cities()->attach($cityData['id'], [
                     'price_per_day' => $cityData['price_per_day'],
                     'buyout_price' => $cityData['buyout_price'] ?? null,
+                    'advance' => $cityData['advance'] ?? null,
                     'description' => $cityData['description'] ?? '',
-                    'is_available' => $cityData['is_available'] ?? true,
+                    'is_available' => true,
                 ]);
             }
         }
@@ -197,7 +199,8 @@ class CarController extends Controller
                     $data = json_decode(json_encode($uploadResult), true);
                     $secureUrl = $data['secure_url'] ?? null;
                 }
-                if ($secureUrl) $photos[] = $secureUrl;
+                if ($secureUrl)
+                    $photos[] = $secureUrl;
             }
         }
 
