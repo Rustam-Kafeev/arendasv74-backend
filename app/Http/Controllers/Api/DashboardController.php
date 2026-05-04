@@ -12,13 +12,12 @@ use Illuminate\Support\Facades\Auth;
 class DashboardController extends Controller
 {
     public function stats()
-{
-    try {
+    {
         $user = Auth::user();
         $carsCount = Car::where('user_id', $user->id)->count();
         $activeCars = Car::where('user_id', $user->id)->where('is_available', true)->count();
 
-        $today = Carbon::today();
+        $today = \Carbon\Carbon::today();
         $todayViews = CarView::whereHas('car', fn($q) => $q->where('user_id', $user->id))
             ->where('view_date', $today)->sum('count');
 
@@ -31,10 +30,9 @@ class DashboardController extends Controller
             'active_cars' => $activeCars,
             'today_views' => $todayViews,
             'unread_messages' => $unreadMessages,
+            'total_views' => $todayViews,
+            'views_chart' => [],
+            'recent_messages' => [],
         ]);
-    } catch (\Exception $e) {
-        \Log::error('Dashboard stats error: '.$e->getMessage());
-        return response()->json(['error' => $e->getMessage()], 500);
     }
-}
 }

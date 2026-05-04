@@ -47,18 +47,25 @@ class ChatController extends Controller
     public function getOrCreateConversation(Car $car)
     {
         $user = Auth::user();
+
+        // Ищем беседу между текущим пользователем и владельцем авто по этому автомобилю
         $conversation = Conversation::where('car_id', $car->id)
-            ->where('owner_id', $car->user_id)
-            ->where('renter_id', $user->id)
+            ->where(function ($q) use ($user, $car) {
+                $q->where('renter_id', $user->id)->where('owner_id', $car->user_id);
+            })
+            ->orWhere(function ($q) use ($user, $car) {
+                $q->where('renter_id', $car->user_id)->where('owner_id', $user->id);
+            })
             ->first();
 
         if (!$conversation) {
             $conversation = Conversation::create([
                 'car_id' => $car->id,
-                'owner_id' => $car->user_id,
                 'renter_id' => $user->id,
+                'owner_id' => $car->user_id,
             ]);
         }
+
         return response()->json($conversation);
     }
 
