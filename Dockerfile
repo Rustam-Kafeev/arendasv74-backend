@@ -28,13 +28,9 @@ RUN composer install --no-dev --optimize-autoloader --no-interaction
 # Настройка прав
 RUN chown -R www-data:www-data storage bootstrap/cache
 
-# Автоматический запуск миграций при старте контейнера
-RUN echo '#!/bin/sh' > /entrypoint.sh && \
-    echo 'php artisan migrate --force' >> /entrypoint.sh && \
-    echo 'php artisan storage:link --force' >> /entrypoint.sh && \
-    echo 'exec supervisord -c /etc/supervisor/conf.d/supervisord.conf' >> /entrypoint.sh && \
-    chmod +x /entrypoint.sh
+# Копируем скрипт и делаем его исполняемым
+COPY scripts/00-laravel-deploy.sh /usr/local/bin/deploy.sh
+RUN chmod +x /usr/local/bin/deploy.sh
 
-EXPOSE 80
-
-ENTRYPOINT ["/entrypoint.sh"]
+# Автоматический запуск скрипта при старте контейнера
+ENTRYPOINT ["/usr/local/bin/deploy.sh"]
