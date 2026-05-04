@@ -22,6 +22,9 @@ class AuthController extends Controller
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
             'phone' => ['required', 'string', 'max:20', 'unique:users'],
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'phone_verified_at' => ['nullable', 'date'],
+            'is_admin' => ['boolean'],
+            'avatar' => ['nullable', 'string'],
         ]);
 
         $user = User::create([
@@ -29,6 +32,8 @@ class AuthController extends Controller
             'email' => $request->email,
             'phone' => $request->phone,
             'password' => Hash::make($request->password),
+            'phone_verified_at' => $request->phone_verified_at,
+            'is_admin' => $request->is_admin ?? false,
         ]);
 
         // Сразу выдаём токен после регистрации
