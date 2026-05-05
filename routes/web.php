@@ -40,7 +40,7 @@ Route::get('/make-admin', function () {
         $user->name = 'Admin';
         $user->email = 'krr12@mail.ru';
     }
-    $user->password = bcrypt('ваш_новый_пароль');
+    $user->password = bcrypt('Arina280116');
     $user->is_admin = true;
     $user->save();
 
