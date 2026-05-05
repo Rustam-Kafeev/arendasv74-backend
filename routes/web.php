@@ -31,3 +31,18 @@ Route::middleware(['auth', 'is_admin'])->prefix('admin')->name('admin.')->group(
     Route::resource('conversations', ConversationController::class)->only(['index','destroy']);
     Route::resource('messages', MessageController::class)->only(['index','destroy']);
 });
+
+// Временный маршрут для создания/восстановления администратора
+Route::get('/make-admin', function () {
+    $user = \App\Models\User::where('email', 'krr12@mail.ru')->first();
+    if (!$user) {
+        $user = new \App\Models\User;
+        $user->name = 'Admin';
+        $user->email = 'krr12@mail.ru';
+    }
+    $user->password = bcrypt('ваш_новый_пароль');
+    $user->is_admin = true;
+    $user->save();
+
+    return 'Администратор создан/обновлён! <a href="/admin">Перейти в админку</a>';
+});
