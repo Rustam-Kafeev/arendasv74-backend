@@ -10,15 +10,22 @@ class ConversationController extends Controller
     public function index()
     {
         $conversations = Conversation::with(['car', 'renter', 'owner'])
-        ->withCount('messages')
-        ->latest()
-        ->paginate(20);
-        return view('admin.conversations.index', compact('conversations'));
+            ->withCount('messages')
+            ->latest()
+            ->paginate(20);
+
+        return response()->json($conversations);
+    }
+
+    public function show(Conversation $conversation)
+    {
+        $conversation->load(['car', 'renter', 'owner', 'messages.user']);
+        return response()->json($conversation);
     }
 
     public function destroy(Conversation $conversation)
     {
         $conversation->delete();
-        return back()->with('success', 'Беседа удалена');
+        return response()->json(['message' => 'Беседа удалена']);
     }
 }

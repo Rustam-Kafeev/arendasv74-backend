@@ -11,12 +11,12 @@ class UserController extends Controller
     public function index()
     {
         $users = User::latest()->paginate(20);
-        return view('admin.users.index', compact('users'));
+        return response()->json($users);
     }
 
-    public function create()
+    public function show(User $user)
     {
-        return view('admin.users.create');
+        return response()->json($user);
     }
 
     public function store(Request $request)
@@ -25,37 +25,38 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users',
             'phone' => 'nullable|string|max:20',
-            'password' => 'required|string|min:8|confirmed',
+            'password' => 'required|string|min:8',
             'is_admin' => 'boolean',
         ]);
-        $validated['password'] = bcrypt($validated['password']);
-        User::create($validated);
-        return redirect()->route('admin.users.index')->with('success', 'Пользователь добавлен');
-    }
 
-    public function edit(User $user)
-    {
-        return view('admin.users.edit', compact('user'));
+        $validated['password'] = bcrypt($validated['password']);
+        $user = User::create($validated);
+
+        return response()->json($user, 201);
     }
 
     public function update(Request $request, User $user)
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email,'.$user->id,
+            'email' => 'required|email|unique:users,email,' . $user->id,
             'phone' => 'nullable|string|max:20',
             'is_admin' => 'boolean',
         ]);
+
         if ($request->filled('password')) {
             $validated['password'] = bcrypt($request->password);
         }
+
         $user->update($validated);
-        return redirect()->route('admin.users.index')->with('success', 'Пользователь обновлён');
+
+        return response()->json($user);
     }
 
     public function destroy(User $user)
     {
         $user->delete();
-        return back()->with('success', 'Пользователь удалён');
+
+        return response()->json(['message' => 'Пользователь удалён']);
     }
 }
